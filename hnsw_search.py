@@ -54,7 +54,7 @@ def build_hnsw_index(passage_embeddings: np.ndarray, m: int, ef_construction: in
 
     Params:
         passage_embeddings (np.ndarray) = 2D float32 array of shape (N, d)
-        m (int) = Number of bi-directional links created per node in the HNSW graph
+        m (int) = Number of neighbor links each node is allowed to have
         ef_construction (int) = Dunamic candiate list size during graph construction
 
     Returns:
@@ -75,3 +75,28 @@ def build_hnsw_index(passage_embeddings: np.ndarray, m: int, ef_construction: in
 
     print(f"Index built in {build_time_sec:.2f} seconds")
     return index, build_time_sec
+
+def search_hnsw_index(index: faiss.IndexHNSWFlat, query_embeddings:np.ndarray, ef_search:int, k:int=100) -> tuple[np.ndarray, np.ndarray, float, float]:
+    """
+    Run batch nearest neighbor seach over the index
+    
+    Params:
+        index (faiss.IndexHNSWFlat)1 = Built faiss hnsw index
+        query_embeddings (np.ndarray) = 2D float32 arrays fo shape (num_queries, d)
+        ef_search (int) = Dynamic candidate list size duirng query time graph traversal
+        k (int) = Number of top passages to retrieve per query (default = 100 for Recall@100/NDCG@100)
+    
+    Returns:
+        scores (np.ndarray) = 2D float32 array of shape (num_queries, k) with dot product scores
+        internal_indices (np.ndarray) = 2D int64 array of shape (num_queries, k) with row_indices
+        total_search_ms (float) = Total search time in ms accross the query batch
+        avg_query_ms (float) = Averrage search latencey in ms per query
+    """
+    #Sets the query time exploration depth
+    index.hnsw.efSearch = ef_search
+    num_queries = query_embeddings.shape[0]
+    start_time = time.perf_counter()
+    scores, internal_indices = index.search(query_embeddings, k)
+    total_search_ms = (time.perf_counter() - start_time) * 1000.0
+    avg_query_ms = total_search_ms/(num_queries if num_queries>0 else 0.0)
+    return scores, internal_indices, total_search_ms, avg_query_ms
