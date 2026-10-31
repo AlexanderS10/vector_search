@@ -1,3 +1,5 @@
 .venv/
 marco-data/
 *.pdf
+*.pyc
+*.run
