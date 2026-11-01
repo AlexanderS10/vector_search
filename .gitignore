@@ -3,3 +3,4 @@ marco-data/
 *.pdf
 *.pyc
 *.run
+.DS_Store
