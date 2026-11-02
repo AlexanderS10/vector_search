@@ -68,7 +68,8 @@ The `msmarco_passages_subset.tsv` file only gives us the 1,000,000 external pass
 `hnsw_search.py` loads the `.h5` embeddings via `read_h5.py`, filters the query embeddings to the unique query IDs present in the `qrels` files, builds the `faiss.IndexHNSWFlat` index using inner product (`faiss.METRIC_INNER_PRODUCT`), and writes out standard 6-column TREC run files to `runs/`:
 
 ```bash
-python hnsw_search.py
+python hnsw_search.py        # eval one only
+python hnsw_search.py --all  # eval one, eval two, and dev from one index build
 ```
 
 ---
@@ -111,8 +112,56 @@ export_bm25 eval eval.one bm25_and_eval_one and
 export_bm25 eval eval.two bm25_and_eval_two and
 ```
 
-The exporter writes directly to `ranks/`; no copy is needed. The reranker can
+The exporter writes directly to `ranks/`. The reranker can
 read the `bm25_*.run` OR files or their `bm25_and_*.run` counterparts. AND may
-return no candidates for a query; treat missing IDs as empty results. Run files
-are ignored by Git, so regenerate or share them separately.
+return no candidates for a query. Missing IDs are null results. Run files
+are ignored by Git.
+
+---
+
+## 7. Rerank candidate runs
+
+`rerank.py` reranks passages in a six-column BM25 or HNSW `.run` file by
+query-passage dot product. It takes a run file, not an index.
+
+```text
+python rerank.py CANDIDATE_RUN OUTPUT_RUN [--passage_vecs PASSAGE_H5] [--query_vecs QUERY_H5]
+```
+
+`CANDIDATE_RUN` is the input `.run` file; `OUTPUT_RUN` is the new run path.
+`--passage_vecs` defaults to `marco-data/msmarco_passages_embeddings_subset.h5`;
+`--query_vecs` defaults to `marco-data/msmarco_queries_dev_eval_embeddings.h5`.
+
+Eval-one examples:
+
+```bash
+python rerank.py ranks/bm25_eval_one.run runs/reranked_eval_one.run
+python rerank.py runs/hnsw_m4_efc50_eval_one.run runs/reranked_hnsw_eval_one.run
+```
+
+---
+
+## 8. Score retrieval runs
+
+`score.py` needs the native `trec_eval` command on your PATH. On macOS, install
+it with `brew install trec_eval`. Run it from this repo's directory:
+
+```text
+python score.py QRELS RUN [RUN ...]
+python score.py --all
+```
+
+`QRELS` is a dev or eval qrels TSV; `RUN` is one or more six-column TREC run
+files. For example:
+
+```bash
+python score.py marco-data/qrels.eval.one.tsv ranks/bm25_eval_one.run runs/hnsw_m4_efc50_eval_one.run runs/reranked_eval_one.run
+```
+
+`--all` scores BM25 OR, BM25 AND, HNSW, and both reranked runs for eval one,
+eval two, and dev. Scores are pretty printed per run to terminal and results are appended to `eval/evals.jsonl`. Note: for now this is git ignored until we are ready
+to submit the project so we don't append a bunch of dupes.
+
+All sets get MRR@10 and Recall@100, eval gets NDCG@10/100. Dev gets MAP.
+Dev's missing qrels column is added in a temporary file.
 
