@@ -111,8 +111,30 @@ export_bm25 eval eval.one bm25_and_eval_one and
 export_bm25 eval eval.two bm25_and_eval_two and
 ```
 
-The exporter writes directly to `ranks/`; no copy is needed. The reranker can
+The exporter writes directly to `ranks/`. The reranker can
 read the `bm25_*.run` OR files or their `bm25_and_*.run` counterparts. AND may
-return no candidates for a query; treat missing IDs as empty results. Run files
-are ignored by Git, so regenerate or share them separately.
+return no candidates for a query. Missing IDs are null results. Run files
+are ignored by Git.
+
+---
+
+## 7. Rerank candidate runs
+
+`rerank.py` reranks passages in a six-column BM25 or HNSW `.run` file by
+query-passage dot product. It takes a run file, not an index.
+
+```text
+python rerank.py CANDIDATE_RUN OUTPUT_RUN [--passage_vecs PASSAGE_H5] [--query_vecs QUERY_H5]
+```
+
+`CANDIDATE_RUN` is the input `.run` file; `OUTPUT_RUN` is the new run path.
+`--passage_vecs` defaults to `marco-data/msmarco_passages_embeddings_subset.h5`;
+`--query_vecs` defaults to `marco-data/msmarco_queries_dev_eval_embeddings.h5`.
+
+Eval-one examples:
+
+```bash
+python rerank.py ranks/bm25_eval_one.run runs/reranked_eval_one.run
+python rerank.py runs/hnsw_m4_efc50_eval_one.run runs/reranked_hnsw_eval_one.run
+```
 
