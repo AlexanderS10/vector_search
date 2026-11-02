@@ -1,3 +1,4 @@
+import argparse
 import time
 import faiss
 import numpy as np
@@ -138,6 +139,13 @@ def write_trec_run(output_path: str, query_ids: list[str], internal_indices: np.
                     f"{qid}\tQ0\t{external_pid}\t{rank}\t{score:.6f}\t{run_name}\n")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--all", action="store_true",
+        help="write separate runs for eval one, eval two, and dev (default: eval one only)",
+    )
+    args = parser.parse_args()
+
     passage_ids, passage_embeddings = load_h5_embeddings(
         "marco-data/msmarco_passages_embeddings_subset.h5"
     )
@@ -163,4 +171,23 @@ if __name__ == "__main__":
     run_file = "runs/hnsw_m4_efc50_eval_one.run"
     write_trec_run(run_file, eval1_qids, indices, scores, passage_ids, run_name="hnsw_m4_efc50_efs50")
     print(f"Saved TREC run to file {run_file}")
-    
+
+    if args.all:
+        for label, qrels_path in (
+            ("eval_two", "marco-data/qrels.eval.two.tsv"),
+            ("dev", "marco-data/qrels.dev.tsv"),
+        ):
+            query_ids, query_embeddings = get_queries_for_qrels(
+                qrels_path, all_query_ids, all_query_embeddings
+            )
+            print(f"Filtered {len(query_ids)} unique queries for {qrels_path}")
+            scores, indices, total_ms, avg_ms = search_hnsw_index(
+                index, query_embeddings, ef_search=50, k=100
+            )
+            print(
+                f"Searched {len(query_ids)} queries in {total_ms:.2f} ms"
+                f"({avg_ms:.3f} ms/query)"
+            )
+            run_file = f"runs/hnsw_m4_efc50_{label}.run"
+            write_trec_run(run_file, query_ids, indices, scores, passage_ids, run_name="hnsw_m4_efc50_efs50")
+            print(f"Saved TREC run to file {run_file}")
