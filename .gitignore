@@ -4,3 +4,5 @@ marco-data/
 *.pyc
 *.run
 .DS_Store
+todo/
+runs/

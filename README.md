@@ -85,3 +85,34 @@ So our benchmark script works across all 3 systems (BM25, HNSW, and Re-ranking),
 - `qrels.eval.one.tsv` and `qrels.eval.two.tsv` have 4 columns (`qid \t 0 \t docid \t rel`).
 - `qrels.dev.tsv` only has **3 columns** (`qid \t docid \t rel` — missing the `0` column in the 2nd position), so it needs that `0` column inserted before passing it to `trec_eval`.
 
+---
+
+## 6. Export BM25 candidates
+
+From the Rust repo root, build `query` after creating the 1M subset index in
+`data/index`. Set `VECTOR_SEARCH_DIR` to this repo's absolute path. The Rust
+repo needs `crates/query/src/batch.rs` and its `main.rs`/`engine.rs` changes.
+
+```bash
+VECTOR_SEARCH_DIR=/absolute/path/to/vector_search
+cargo build --release -p query
+
+export_bm25() {
+  target/release/query --batch \
+    "$VECTOR_SEARCH_DIR/marco-data/queries.$1.tsv" \
+    "$VECTOR_SEARCH_DIR/marco-data/qrels.$2.tsv" \
+    "$VECTOR_SEARCH_DIR/ranks/$3.run" 1000 "$4"
+}
+export_bm25 dev dev bm25_dev or
+export_bm25 eval eval.one bm25_eval_one or
+export_bm25 eval eval.two bm25_eval_two or
+export_bm25 dev dev bm25_and_dev and
+export_bm25 eval eval.one bm25_and_eval_one and
+export_bm25 eval eval.two bm25_and_eval_two and
+```
+
+The exporter writes directly to `ranks/`; no copy is needed. The reranker can
+read the `bm25_*.run` OR files or their `bm25_and_*.run` counterparts. AND may
+return no candidates for a query; treat missing IDs as empty results. Run files
+are ignored by Git, so regenerate or share them separately.
+
