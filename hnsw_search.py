@@ -4,6 +4,7 @@ import faiss
 import numpy as np
 from read_h5 import load_h5_embeddings
 import os
+import json
 
 
 def get_queries_for_qrels(qrels_path: str, all_query_ids: np.ndarray, all_query_embeddings: np.ndarray) -> tuple[list[str], np.ndarray]:
@@ -138,11 +139,94 @@ def write_trec_run(output_path: str, query_ids: list[str], internal_indices: np.
                 f.write(
                     f"{qid}\tQ0\t{external_pid}\t{rank}\t{score:.6f}\t{run_name}\n")
 
+def get_index_memory_mb(index: faiss.IndexHNSWFlat, passage_embeddings:np.ndarray) -> tuple[float, float]:
+    vec_bytes = passage_embeddings.nbytes
+    graph_bytes = (
+        index.hnsw.neighbors.size() *4
+        +index.hnsw.offsets.size() * 8
+        + index.hnsw.levels.size() *4
+    )
+    return (vec_bytes + graph_bytes) / (1024 **2), graph_bytes/(1024**2)
+
+SWEEP_CONFIGS = [
+    # (M, efConstruction, [efSearch values to test on this graph])
+    (4, 50, [50, 100, 150, 200]),
+    (4, 100, [50, 100, 150, 200]),
+    (4, 150, [50, 100, 150, 200]),
+    (5, 100, [50, 100, 150, 200]),
+    (5, 150, [50, 100, 150, 200]),
+    (6, 100, [50, 100, 150, 200]),
+    (6, 150, [50, 100, 150, 200]),
+    (7, 150, [50, 100, 150, 200]),
+    (8, 200, [50, 100, 150, 200]),
+]
+
+def run_sweep(
+    passage_ids: np.ndarray,
+    passage_embeddings: np.ndarray,
+    all_query_ids : np.ndarray,
+    all_query_embeddings:np.ndarray
+)->None:
+    """
+    This will build the HNSW indexes accross (M, efConstruction) configs, evaluate each efSearch settings on the eval_one, eval_two, and dev, wrtie TREC run files, 
+    and log build time/memory/latency stats to eval/hnsw_stats.jsonl
+    """
+    query_sets =[]
+    for label, qrels_path in (
+        ("eval_one", "marco-data/qrels.eval.one.tsv"),
+        ("eval_two", "marco-data/qrels.eval.two.tsv"),
+        ("dev","marco-data/qrels.dev.tsv"),
+    ):
+        qids, q_emb = get_queries_for_qrels(qrels_path, all_query_ids, all_query_embeddings)
+        print(f"Filtered {len(qids)} unique queries for {qrels_path}")
+        query_sets.append((label, qids, q_emb))
+    os.makedirs("eval", exist_ok=True)
+    
+    with open("eval/hnsw_stats.jsonl", "w") as stats_file:
+        for m, efc, efs_list in SWEEP_CONFIGS:
+            index, build_sec = build_hnsw_index(passage_embeddings, m=m, ef_construction=efc)
+            total_mb, graph_mb = get_index_memory_mb(index, passage_embeddings)
+            print(f"Memmory: {total_mb:.2f} MB total ({graph_mb:.2f} MB HNSW graph)")
+            
+            for efs in efs_list:
+                run_name = f"hnsw_m{m}_efc_{efc}_efs{efs}"
+                for label, qids, q_emb in query_sets: 
+                    scores, indices, total_ms, avg_ms = search_hnsw_index(index, q_emb, ef_search=efs, k=100)
+                    print(f"[{run_name} | {label}] Searched {len(qids)} queries in {total_ms:.2f} ms ({avg_ms:.3f}) ms/query")
+                    run_file = f"runs/{run_name}_{label}.run"
+                    write_trec_run(run_file, qids, indices, scores, passage_ids, run_name=run_name)
+                    
+                    #Keep the baseline filename that score.py --all expects
+                    if(m, efc, efs) == (4,50,50):
+                        write_trec_run(
+                            f"runs/hnsw_m4_efc50_{label}.run",
+                            qids, indices, scores, passage_ids, run_name=run_name
+                        )
+                    record ={
+                        "run_name": run_name,
+                        "m": m,
+                        "ef_construction": efc,
+                        "ef_search": efs,
+                        "build_time_sec": round(build_sec, 3),
+                        "total_memory_mb": round(total_mb, 2),
+                        "graph_memory_mb": round(graph_mb, 2),
+                        "query_set": label,
+                        "num_queries": len(qids),
+                        "total_search_ms": round(total_ms, 3),
+                        "avg_query_ms": round(avg_ms, 4)
+                    }
+                    stats_file.write(json.dumps(record)+"\n")
+                    stats_file.flush()
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--all", action="store_true",
         help="write separate runs for eval one, eval two, and dev (default: eval one only)",
+    )
+    parser.add_argument(
+        "--sweep", action="store_true",
+        help="run full HNSW parameter sweep from (4, 50, 50) to (8, 200, 200)",
     )
     args = parser.parse_args()
 
@@ -152,6 +236,9 @@ if __name__ == "__main__":
     all_query_ids, all_query_embeddings = load_h5_embeddings(
         "marco-data/msmarco_queries_dev_eval_embeddings.h5"
     )
+    if args.sweep:
+        run_sweep(passage_ids, passage_embeddings, all_query_ids, all_query_embeddings)
+        raise SystemExit(0)
     
     #filter the queries for qrels.eval.one.tsv
     eval1_qids, eval1_1_emb = get_queries_for_qrels(
