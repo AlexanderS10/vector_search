@@ -164,11 +164,14 @@ python score.py marco-data/qrels.eval.one.tsv ranks/bm25_eval_one.run runs/hnsw_
 ```
 
 `--all` scores BM25 OR, BM25 AND, all 36 HNSW sweep configurations, and both reranked runs for eval one,
-eval two, and dev. Scores are pretty printed per run to terminal and results are appended to `eval/evals.jsonl`. Note: for now this is git ignored until we are ready
-to submit the project so we don't append a bunch of dupes.
+eval two, and dev. Scores are pretty printed per run to terminal and results are appended to `eval/evals.jsonl`. 
 
 All sets get MRR@10 and Recall@100, eval gets NDCG@10/100. Dev gets MAP.
 Dev's missing qrels column is added in a temporary file.
+
+The timed candidate-count experiment is recorded in `eval/evals.jsonl` (51 runs). `score.py` reads saved retrieval timings when scoring those run files.
+
+`ms/q` divides measured batch time by all judged queries, including queries with no results. BM25 timing includes batch export but excludes index initialization; hybrid timing adds candidate-file reading, reranking, and output writing, excluding embedding loading. HNSW timing covers batch search only. These scopes are saved with each result. Run-specific `.timing.json` files retain the measurements and validate the run contents; scoring an untimed run reports a blank `ms/q`, rather than timing `trec_eval`.
 
 ---
 
@@ -332,3 +335,139 @@ Raw `float32` passage embeddings occupy fixed base storage of **`1,464.84 MB`** 
 | **System #3b: BM25 (`AND`) + Vector Rerank** | — | 0.1022 | 0.1063 | 0.0988 |
 
 
+
+---
+
+## 10. BM25 batch export results
+
+Hardware: MacBook Air (Apple M3, 8 CPU cores, 16 GB RAM).
+
+Release build; one sequential run per set and mode, with snippets disabled and K = 1,000. Times include qrels loading, query filtering, search, and TREC file writing, but exclude index initialization. The index contains 1,000,000 passages (`avgdl = 54.344449`).
+
+| Judged set | Queries | OR time | OR rows | AND time | AND rows |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Dev | 1,000 | 12.604 s | 998,299 | 0.033 s | 1,708 |
+| Eval one | 43 | 0.543 s | 43,000 | 0.008 s | 128 |
+| Eval two | 54 | 0.585 s | 54,000 | 0.009 s | 59 |
+
+---
+
+## 11. BM25 candidate count ablation
+
+Results from `score.py` with `trec_eval -c` are recorded in `eval/evals.jsonl`. BM25 candidate counts are K=100, 200, 500, and 1,000; every recall value below is Recall@100, evaluated on the first 100 results even when K is larger. The fixed HNSW control retrieves 100 passages with `(M=8, efConstruction=200, efSearch=100)`.
+
+### Raw BM25 scores
+
+| Judged set | Mode | BM25 K | MRR@10 | Recall@100 | NDCG@10 | NDCG@100 | MAP |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Eval one | OR | 100 | 0.7942 | 0.5174 | 0.4517 | 0.5335 | — |
+| Eval one | OR | 200 | 0.7942 | 0.5174 | 0.4517 | 0.5335 | — |
+| Eval one | OR | 500 | 0.7942 | 0.5174 | 0.4517 | 0.5335 | — |
+| Eval one | OR | 1,000 | 0.7942 | 0.5174 | 0.4517 | 0.5335 | — |
+| Eval one | AND | 100 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
+| Eval one | AND | 200 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
+| Eval one | AND | 500 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
+| Eval one | AND | 1,000 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
+| Eval two | OR | 100 | 0.8148 | 0.5251 | 0.4985 | 0.5144 | — |
+| Eval two | OR | 200 | 0.8148 | 0.5251 | 0.4985 | 0.5144 | — |
+| Eval two | OR | 500 | 0.8148 | 0.5251 | 0.4985 | 0.5144 | — |
+| Eval two | OR | 1,000 | 0.8148 | 0.5251 | 0.4985 | 0.5144 | — |
+| Eval two | AND | 100 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
+| Eval two | AND | 200 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
+| Eval two | AND | 500 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
+| Eval two | AND | 1,000 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
+| Dev | OR | 100 | 0.3990 | 0.8050 | — | — | 0.4010 |
+| Dev | OR | 200 | 0.3990 | 0.8050 | — | — | 0.4014 |
+| Dev | OR | 500 | 0.3990 | 0.8050 | — | — | 0.4015 |
+| Dev | OR | 1,000 | 0.3990 | 0.8050 | — | — | 0.4016 |
+| Dev | AND | 100 | 0.0951 | 0.1063 | — | — | 0.0924 |
+| Dev | AND | 200 | 0.0951 | 0.1063 | — | — | 0.0924 |
+| Dev | AND | 500 | 0.0951 | 0.1063 | — | — | 0.0924 |
+| Dev | AND | 1,000 | 0.0951 | 0.1063 | — | — | 0.0924 |
+
+### Eval one (TREC DL 2019)
+
+#### OR + rerank
+
+| BM25 K | MRR@10 | Recall@100 | NDCG@10 | NDCG@100 |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.9612 | 0.5174 | 0.6899 | 0.5999 |
+| 200 | 0.9806 | 0.5487 | 0.7135 | 0.6423 |
+| 500 | 0.9690 | 0.5689 | 0.7101 | 0.6615 |
+| 1,000 | 0.9651 | 0.5689 | 0.7053 | 0.6619 |
+
+Fixed HNSW control (M=8, efConstruction=200, efSearch=100; top 100): MRR@10 0.9535, Recall@100 0.5567, NDCG@10 0.6987, NDCG@100 0.6559.
+
+### Eval two (TREC DL 2020)
+
+#### OR + rerank
+
+| BM25 K | MRR@10 | Recall@100 | NDCG@10 | NDCG@100 |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.9204 | 0.5251 | 0.6418 | 0.5800 |
+| 200 | 0.9204 | 0.5694 | 0.6556 | 0.6081 |
+| 500 | 0.9241 | 0.6019 | 0.6591 | 0.6281 |
+| 1,000 | 0.9259 | 0.6111 | 0.6578 | 0.6339 |
+
+Fixed HNSW control (M=8, efConstruction=200, efSearch=100; top 100): MRR@10 0.9230, Recall@100 0.6113, NDCG@10 0.6627, NDCG@100 0.6377.
+
+### Dev (MS MARCO)
+
+#### OR + rerank
+
+| BM25 K | MRR@10 | Recall@100 | MAP |
+| ---: | ---: | ---: | ---: |
+| 100 | 0.5664 | 0.8050 | 0.5615 |
+| 200 | 0.5735 | 0.8420 | 0.5693 |
+| 500 | 0.5792 | 0.8758 | 0.5762 |
+| 1,000 | 0.5843 | 0.8933 | 0.5815 |
+
+Fixed HNSW control (M=8, efConstruction=200, efSearch=100; top 100): MRR@10 0.5431, Recall@100 0.8599, MAP 0.5418.
+
+### Measured latency by candidate count
+
+Measured amortized **ms/q** from [eval/evals.jsonl](eval/evals.jsonl): batch milliseconds divided by all judged queries (43 for eval one, 54 for eval two, and 1,000 for dev), including queries with no results. These are single-run measurements, rounded to four decimal places.
+
+BM25 includes qrels loading, query filtering, search, and run writing, excluding index initialization. The reranker stage includes candidate-file reading, vector scoring, sorting, and run writing, excluding embedding loading. Hybrid total is the sum of these two measured stages.
+
+| Judged set | Mode | Candidate K | BM25 (ms/q) | Reranker stage (ms/q) | Hybrid total (ms/q) |
+| :--- | :--- | ---: | ---: | ---: | ---: |
+| Eval one | OR | 100 | 13.9070 | 0.4471 | 14.3541 |
+| Eval one | OR | 200 | 12.3256 | 0.5511 | 12.8767 |
+| Eval one | OR | 500 | 12.3953 | 1.0228 | 13.4181 |
+| Eval one | OR | 1,000 | 12.4651 | 1.7403 | 14.2054 |
+| Eval one | AND | 100 | 0.1860 | 0.0184 | 0.2045 |
+| Eval one | AND | 200 | 0.1860 | 0.0219 | 0.2080 |
+| Eval one | AND | 500 | 0.2093 | 0.0329 | 0.2422 |
+| Eval one | AND | 1,000 | 0.1628 | 0.0523 | 0.2151 |
+| Eval two | OR | 100 | 11.7407 | 0.2020 | 11.9427 |
+| Eval two | OR | 200 | 10.3704 | 0.3807 | 10.7511 |
+| Eval two | OR | 500 | 10.4815 | 0.8567 | 11.3382 |
+| Eval two | OR | 1,000 | 10.8333 | 1.6062 | 12.4396 |
+| Eval two | AND | 100 | 0.1667 | 0.0113 | 0.1780 |
+| Eval two | AND | 200 | 0.2222 | 0.0155 | 0.2377 |
+| Eval two | AND | 500 | 0.1667 | 0.0269 | 0.1935 |
+| Eval two | AND | 1,000 | 0.1667 | 0.0450 | 0.2117 |
+| Dev | OR | 100 | 12.0750 | 0.2290 | 12.3040 |
+| Dev | OR | 200 | 11.9950 | 0.4412 | 12.4362 |
+| Dev | OR | 500 | 11.9740 | 0.8747 | 12.8487 |
+| Dev | OR | 1,000 | 12.1940 | 1.6402 | 13.8342 |
+| Dev | AND | 100 | 0.0350 | 0.0130 | 0.0480 |
+| Dev | AND | 200 | 0.0360 | 0.0137 | 0.0497 |
+| Dev | AND | 500 | 0.0360 | 0.0250 | 0.0610 |
+| Dev | AND | 1,000 | 0.0370 | 0.0485 | 0.0855 |
+
+The same timed run includes a fresh HNSW control `(M=8, efConstruction=200, efSearch=100)`, retrieving 100 passages with eight OpenMP threads. HNSW measures batch search only, so its timing scope differs from the export-based BM25 and hybrid totals above.
+
+| Judged set | HNSW search (ms/q) |
+| :--- | ---: |
+| Eval one | 0.1073 |
+| Eval two | 0.0968 |
+| Dev | 0.0670 |
+
+Timing metadata and run hashes are stored in the JSONL and the corresponding `.timing.json` sidecars; BM25 export logs are in [eval/bm25_export/sweep/](eval/bm25_export/sweep/).
+
+
+### How to run
+
+Export BM25 runs at K=100, 200, 500, and 1,000, rerank the OR candidates, then run `score.py` on the resulting runs. The README's export, rerank, and scoring sections give the commands.

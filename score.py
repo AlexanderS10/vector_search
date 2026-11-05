@@ -1,7 +1,9 @@
 """scores eval 1, 2 and dev runs across retrieval types, print the run to a jsonl"""
 
 import argparse
+import hashlib
 import json
+import math
 import subprocess
 import tempfile
 from pathlib import Path
@@ -32,14 +34,34 @@ def prepare_qrels(qrels_path: str, directory: str) -> tuple[str, str, set[str]]:
     return qrels_path, "ndcg_cut.10,100", {"recall_100", "mrr_10", "ndcg_10", "ndcg_100"}
 
 
-def batch_eval(qrels_path: str, run_files: list[str]) -> None:
+def read_timing(run_path, num_queries):
+    path = Path(run_path).with_suffix(".timing.json")
+    if not path.exists():
+        return None
+    timing = json.loads(path.read_text())
+    if timing["num_queries"] != num_queries or num_queries <= 0:
+        raise ValueError(f"Timing query count does not match qrels: {path}")
+    if not math.isfinite(timing["batch_ms"]) or timing["batch_ms"] < 0:
+        raise ValueError(f"Invalid elapsed time: {path}")
+    with open(run_path, "rb") as source:
+        if hashlib.file_digest(source, "sha256").hexdigest() != timing["run_sha256"]:
+            raise ValueError(f"Run changed since it was timed: {run_path}")
+    return timing
+
+
+def batch_eval(qrels_path: str, run_files: list[str], output_path="eval/evals.jsonl") -> None:
     """score each run, append it to evals.jsonl, and print the results"""
     with tempfile.TemporaryDirectory() as directory:
         prepared_qrels, metric, expected = prepare_qrels(qrels_path, directory)
+        with open(prepared_qrels) as source:
+            num_queries = len({line.split()[0] for line in source if line.strip()})
+        if num_queries == 0:
+            raise ValueError(f"No judged queries: {qrels_path}")
         Path("eval").mkdir(exist_ok=True)
         # append so earlier evaluations stay in the jsonl file
-        with open("eval/evals.jsonl", "a") as output:
+        with open(output_path, "a") as output:
             for file in run_files:
+                timing = read_timing(file, num_queries)
                 results = score(prepared_qrels, file, "-m", "recall.100", "-m", metric)
                 # cap reciprocal rank at 10 to get mrr@10
                 results += score(prepared_qrels, file, "-M", "10", "-m", "recip_rank")
@@ -51,16 +73,24 @@ def batch_eval(qrels_path: str, run_files: list[str]) -> None:
                         name = {"recip_rank": "mrr_10", "ndcg_cut_10": "ndcg_10", "ndcg_cut_100": "ndcg_100"}.get(name, name)
                         metrics[name] = float(value)
                 assert set(metrics) == expected, f"missing metrics for {file}: {metrics}"
-                output.write(json.dumps({"qrels": qrels_path, "run": file, "metrics": metrics}) + "\n")
+                metrics["avg_query_ms"] = timing["batch_ms"] / num_queries if timing else None
+                record = {"qrels": str(qrels_path), "run": str(file), "metrics": metrics}
+                if timing:
+                    record["timing"] = timing
+                    if "candidate_k" in timing:
+                        record["ablation_k"] = timing["candidate_k"]
+                output.write(json.dumps(record) + "\n")
                 print_report(file, metrics)
+                if timing:
+                    print(f"Timing: {timing['scope']}; {num_queries} judged queries")
 
 def print_report(file: str, metrics: dict[str, float]) -> None:
     """pretty print the scores in the terminal"""
-    labels = {"mrr_10": "MRR@10", "recall_100": "Recall@100", "ndcg_10": "NDCG@10", "ndcg_100": "NDCG@100", "map": "MAP"}
+    labels = {"avg_query_ms": "ms/q", "mrr_10": "MRR@10", "recall_100": "Recall@100", "ndcg_10": "NDCG@10", "ndcg_100": "NDCG@100", "map": "MAP"}
     columns = [name for name in labels if name in metrics]
     print(f"\n{Path(file).name}")
     print("  ".join(f"{labels[name]:>12}" for name in columns))
-    print("  ".join(f"{metrics[name]:>12.4f}" for name in columns))
+    print("  ".join(f"{metrics[name]:>12.4f}" if metrics[name] is not None else f"{'—':>12}" for name in columns))
 
 
 def run_all() -> None:
