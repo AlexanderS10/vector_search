@@ -141,7 +141,7 @@ Single-file examples:
 
 ```bash
 python rerank.py ranks/bm25_eval_one.run runs/reranked_eval_one.run
-python rerank.py runs/hnsw_m4_efc50_eval_one.run runs/reranked_hnsw_eval_one.run
+python rerank.py runs/hnsw_m8_efc200_efs100_k100_eval_one.run runs/reranked_hnsw_eval_one.run
 ```
 
 ---
@@ -160,7 +160,7 @@ python score.py --all
 files. For example:
 
 ```bash
-python score.py marco-data/qrels.eval.one.tsv ranks/bm25_eval_one.run runs/hnsw_m4_efc50_eval_one.run runs/reranked_eval_one.run
+python score.py marco-data/qrels.eval.one.tsv ranks/bm25_eval_one.run runs/hnsw_m8_efc200_efs100_k100_eval_one.run runs/reranked_eval_one_k1000.run
 ```
 
 `--all` scores BM25 OR, BM25 AND, all 36 HNSW sweep configurations, and both reranked runs for eval one,
@@ -169,7 +169,7 @@ eval two, and dev. Scores are pretty printed per run to terminal and results are
 All sets get MRR@10 and Recall@100, eval gets NDCG@10/100. Dev gets MAP.
 Dev's missing qrels column is added in a temporary file.
 
-The timed candidate-count experiment is recorded in `eval/evals.jsonl` (51 runs). `score.py` reads saved retrieval timings when scoring those run files.
+The timed candidate-count experiment is recorded in `eval/evals.jsonl` (87 runs). `score.py` reads saved retrieval timings when scoring those run files.
 
 `ms/q` divides measured batch time by all judged queries, including queries with no results. BM25 timing includes batch export but excludes index initialization; hybrid timing adds candidate-file reading, reranking, and output writing, excluding embedding loading. HNSW timing covers batch search only. These scopes are saved with each result. Run-specific `.timing.json` files retain the measurements and validate the run contents; scoring an untimed run reports a blank `ms/q`, rather than timing `trec_eval`.
 
@@ -354,32 +354,50 @@ Release build; one sequential run per set and mode, with snippets disabled and K
 
 ## 11. BM25 candidate count ablation
 
-Results from `score.py` with `trec_eval -c` are recorded in `eval/evals.jsonl`. BM25 candidate counts are K=100, 200, 500, and 1,000; every recall value below is Recall@100, evaluated on the first 100 results even when K is larger. The fixed HNSW control retrieves 100 passages with `(M=8, efConstruction=200, efSearch=100)`.
+Results from `score.py` with `trec_eval -c` are recorded in `eval/evals.jsonl`. BM25 candidate counts are K=10, 20, 50, 100, 200, 500, and 1,000. Recall@100 uses all available results when K<100 and only the first 100 when K is larger. The fixed HNSW control retrieves 100 passages with `(M=8, efConstruction=200, efSearch=100)`.
 
 ### Raw BM25 scores
 
 | Judged set | Mode | BM25 K | MRR@10 | Recall@100 | NDCG@10 | NDCG@100 | MAP |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Eval one | OR | 10 | 0.7942 | 0.1343 | 0.4517 | 0.2182 | — |
+| Eval one | OR | 20 | 0.7942 | 0.2123 | 0.4517 | 0.2984 | — |
+| Eval one | OR | 50 | 0.7942 | 0.3780 | 0.4517 | 0.4281 | — |
 | Eval one | OR | 100 | 0.7942 | 0.5174 | 0.4517 | 0.5335 | — |
 | Eval one | OR | 200 | 0.7942 | 0.5174 | 0.4517 | 0.5335 | — |
 | Eval one | OR | 500 | 0.7942 | 0.5174 | 0.4517 | 0.5335 | — |
 | Eval one | OR | 1,000 | 0.7942 | 0.5174 | 0.4517 | 0.5335 | — |
+| Eval one | AND | 10 | 0.4070 | 0.0176 | 0.1293 | 0.0545 | — |
+| Eval one | AND | 20 | 0.4070 | 0.0228 | 0.1293 | 0.0609 | — |
+| Eval one | AND | 50 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
 | Eval one | AND | 100 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
 | Eval one | AND | 200 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
 | Eval one | AND | 500 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
 | Eval one | AND | 1,000 | 0.4070 | 0.0240 | 0.1293 | 0.0619 | — |
+| Eval two | OR | 10 | 0.8148 | 0.1613 | 0.4985 | 0.2753 | — |
+| Eval two | OR | 20 | 0.8148 | 0.2520 | 0.4985 | 0.3407 | — |
+| Eval two | OR | 50 | 0.8148 | 0.3934 | 0.4985 | 0.4359 | — |
 | Eval two | OR | 100 | 0.8148 | 0.5251 | 0.4985 | 0.5144 | — |
 | Eval two | OR | 200 | 0.8148 | 0.5251 | 0.4985 | 0.5144 | — |
 | Eval two | OR | 500 | 0.8148 | 0.5251 | 0.4985 | 0.5144 | — |
 | Eval two | OR | 1,000 | 0.8148 | 0.5251 | 0.4985 | 0.5144 | — |
+| Eval two | AND | 10 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
+| Eval two | AND | 20 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
+| Eval two | AND | 50 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
 | Eval two | AND | 100 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
 | Eval two | AND | 200 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
 | Eval two | AND | 500 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
 | Eval two | AND | 1,000 | 0.3426 | 0.0250 | 0.1124 | 0.0619 | — |
+| Dev | OR | 10 | 0.3990 | 0.6028 | — | — | 0.3921 |
+| Dev | OR | 20 | 0.3990 | 0.6783 | — | — | 0.3976 |
+| Dev | OR | 50 | 0.3990 | 0.7578 | — | — | 0.4004 |
 | Dev | OR | 100 | 0.3990 | 0.8050 | — | — | 0.4010 |
 | Dev | OR | 200 | 0.3990 | 0.8050 | — | — | 0.4014 |
 | Dev | OR | 500 | 0.3990 | 0.8050 | — | — | 0.4015 |
 | Dev | OR | 1,000 | 0.3990 | 0.8050 | — | — | 0.4016 |
+| Dev | AND | 10 | 0.0951 | 0.1043 | — | — | 0.0923 |
+| Dev | AND | 20 | 0.0951 | 0.1043 | — | — | 0.0923 |
+| Dev | AND | 50 | 0.0951 | 0.1053 | — | — | 0.0924 |
 | Dev | AND | 100 | 0.0951 | 0.1063 | — | — | 0.0924 |
 | Dev | AND | 200 | 0.0951 | 0.1063 | — | — | 0.0924 |
 | Dev | AND | 500 | 0.0951 | 0.1063 | — | — | 0.0924 |
@@ -391,6 +409,9 @@ Results from `score.py` with `trec_eval -c` are recorded in `eval/evals.jsonl`. 
 
 | BM25 K | MRR@10 | Recall@100 | NDCG@10 | NDCG@100 |
 | ---: | ---: | ---: | ---: | ---: |
+| 10 | 0.8718 | 0.1343 | 0.5000 | 0.2423 |
+| 20 | 0.9180 | 0.2123 | 0.6075 | 0.3392 |
+| 50 | 0.9388 | 0.3780 | 0.6715 | 0.4845 |
 | 100 | 0.9612 | 0.5174 | 0.6899 | 0.5999 |
 | 200 | 0.9806 | 0.5487 | 0.7135 | 0.6423 |
 | 500 | 0.9690 | 0.5689 | 0.7101 | 0.6615 |
@@ -404,6 +425,9 @@ Fixed HNSW control (M=8, efConstruction=200, efSearch=100; top 100): MRR@10 0.95
 
 | BM25 K | MRR@10 | Recall@100 | NDCG@10 | NDCG@100 |
 | ---: | ---: | ---: | ---: | ---: |
+| 10 | 0.8614 | 0.1613 | 0.5228 | 0.2907 |
+| 20 | 0.8995 | 0.2520 | 0.5739 | 0.3717 |
+| 50 | 0.9213 | 0.3934 | 0.6167 | 0.4822 |
 | 100 | 0.9204 | 0.5251 | 0.6418 | 0.5800 |
 | 200 | 0.9204 | 0.5694 | 0.6556 | 0.6081 |
 | 500 | 0.9241 | 0.6019 | 0.6591 | 0.6281 |
@@ -417,6 +441,9 @@ Fixed HNSW control (M=8, efConstruction=200, efSearch=100; top 100): MRR@10 0.92
 
 | BM25 K | MRR@10 | Recall@100 | MAP |
 | ---: | ---: | ---: | ---: |
+| 10 | 0.5007 | 0.6028 | 0.4930 |
+| 20 | 0.5282 | 0.6783 | 0.5210 |
+| 50 | 0.5523 | 0.7578 | 0.5474 |
 | 100 | 0.5664 | 0.8050 | 0.5615 |
 | 200 | 0.5735 | 0.8420 | 0.5693 |
 | 500 | 0.5792 | 0.8758 | 0.5762 |
@@ -432,26 +459,44 @@ BM25 includes qrels loading, query filtering, search, and run writing, excluding
 
 | Judged set | Mode | Candidate K | BM25 (ms/q) | Reranker stage (ms/q) | Hybrid total (ms/q) |
 | :--- | :--- | ---: | ---: | ---: | ---: |
+| Eval one | OR | 10 | 18.2093 | 0.0257 | 18.2350 |
+| Eval one | OR | 20 | 11.9535 | 0.0629 | 12.0164 |
+| Eval one | OR | 50 | 11.9767 | 0.0892 | 12.0659 |
 | Eval one | OR | 100 | 13.9070 | 0.4471 | 14.3541 |
 | Eval one | OR | 200 | 12.3256 | 0.5511 | 12.8767 |
 | Eval one | OR | 500 | 12.3953 | 1.0228 | 13.4181 |
 | Eval one | OR | 1,000 | 12.4651 | 1.7403 | 14.2054 |
+| Eval one | AND | 10 | 0.1860 | 0.0185 | 0.2045 |
+| Eval one | AND | 20 | 0.1860 | 0.0161 | 0.2022 |
+| Eval one | AND | 50 | 0.1860 | 0.0127 | 0.1988 |
 | Eval one | AND | 100 | 0.1860 | 0.0184 | 0.2045 |
 | Eval one | AND | 200 | 0.1860 | 0.0219 | 0.2080 |
 | Eval one | AND | 500 | 0.2093 | 0.0329 | 0.2422 |
 | Eval one | AND | 1,000 | 0.1628 | 0.0523 | 0.2151 |
+| Eval two | OR | 10 | 11.2222 | 0.0310 | 11.2533 |
+| Eval two | OR | 20 | 10.3148 | 0.0283 | 10.3431 |
+| Eval two | OR | 50 | 10.2593 | 0.0806 | 10.3399 |
 | Eval two | OR | 100 | 11.7407 | 0.2020 | 11.9427 |
 | Eval two | OR | 200 | 10.3704 | 0.3807 | 10.7511 |
 | Eval two | OR | 500 | 10.4815 | 0.8567 | 11.3382 |
 | Eval two | OR | 1,000 | 10.8333 | 1.6062 | 12.4396 |
+| Eval two | AND | 10 | 0.1852 | 0.0064 | 0.1916 |
+| Eval two | AND | 20 | 0.1667 | 0.0064 | 0.1731 |
+| Eval two | AND | 50 | 0.1667 | 0.0063 | 0.1729 |
 | Eval two | AND | 100 | 0.1667 | 0.0113 | 0.1780 |
 | Eval two | AND | 200 | 0.2222 | 0.0155 | 0.2377 |
 | Eval two | AND | 500 | 0.1667 | 0.0269 | 0.1935 |
 | Eval two | AND | 1,000 | 0.1667 | 0.0450 | 0.2117 |
+| Dev | OR | 10 | 12.2910 | 0.0217 | 12.3127 |
+| Dev | OR | 20 | 11.8940 | 0.0301 | 11.9241 |
+| Dev | OR | 50 | 11.7980 | 0.0818 | 11.8798 |
 | Dev | OR | 100 | 12.0750 | 0.2290 | 12.3040 |
 | Dev | OR | 200 | 11.9950 | 0.4412 | 12.4362 |
 | Dev | OR | 500 | 11.9740 | 0.8747 | 12.8487 |
 | Dev | OR | 1,000 | 12.1940 | 1.6402 | 13.8342 |
+| Dev | AND | 10 | 0.0350 | 0.0030 | 0.0380 |
+| Dev | AND | 20 | 0.0330 | 0.0031 | 0.0361 |
+| Dev | AND | 50 | 0.0330 | 0.0042 | 0.0372 |
 | Dev | AND | 100 | 0.0350 | 0.0130 | 0.0480 |
 | Dev | AND | 200 | 0.0360 | 0.0137 | 0.0497 |
 | Dev | AND | 500 | 0.0360 | 0.0250 | 0.0610 |
@@ -465,9 +510,9 @@ The same timed run includes a fresh HNSW control `(M=8, efConstruction=200, efSe
 | Eval two | 0.0968 |
 | Dev | 0.0670 |
 
-Timing metadata and run hashes are stored in the JSONL and the corresponding `.timing.json` sidecars; BM25 export logs are in [eval/bm25_export/sweep/](eval/bm25_export/sweep/).
+Timing metadata and run hashes are stored in the JSONL and the corresponding `.timing.json` sidecars. The earlier batch measurements in §10 retain their source logs in [eval/bm25_export/batch/](eval/bm25_export/batch/).
 
 
 ### How to run
 
-Export BM25 runs at K=100, 200, 500, and 1,000, rerank the OR candidates, then run `score.py` on the resulting runs. The README's export, rerank, and scoring sections give the commands.
+Export BM25 runs at K=10, 20, 50, 100, 200, 500, and 1,000, rerank the OR and AND candidates, then run `score.py` on the resulting runs. The README's export, rerank, and scoring sections give the commands.
